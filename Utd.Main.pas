@@ -16,7 +16,7 @@ uses
   (* DelphiAst *)
   DelphiAst, DelphiAST.Classes, DelphiAST.Consts,
 
-  dwsComp;
+  dwsComp, SynEditMiscClasses, SynEditSearch;
 
 type
   TFormUnitToDfm = class(TForm)
@@ -47,6 +47,10 @@ type
     ToolButtonConvert: TToolButton;
     ToolButtonOpen: TToolButton;
     ToolButtonSaveAs: TToolButton;
+    SynEditSearch: TSynEditSearch;
+    ActionSearchFind: TSearchFind;
+    MenuItemSearch: TMenuItem;
+    Find1: TMenuItem;
     procedure ActionConvertExecute(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
@@ -63,6 +67,7 @@ type
     procedure AddClass(const Node: TSyntaxNode);
     procedure AddSynonym(const Node: TSyntaxNode);
     procedure SetPascalFileName(const Value: TFileName);
+    procedure AddInterface(const Node: TSyntaxNode);
   public
     procedure LoadFromFile(FileName: TFileName);
 
@@ -156,6 +161,7 @@ procedure TFormUnitToDfm.AddConstant(const Node: TSyntaxNode);
     CurrentValue: Variant;
     CurrentDataType: string;
     Index: Integer;
+    Symbol: TdwsSymbol;
   begin
     Result := False;
     if Node.Typ = ntLiteral then
@@ -168,11 +174,13 @@ procedure TFormUnitToDfm.AddConstant(const Node: TSyntaxNode);
         if TypeString = 'numeric' then
         begin
           Value := Int64(StrToInt(ValuedNode.Value));
+          DataType := 'Integer';
           Exit(True);
         end;
         if TypeString = 'string' then
         begin
           Value := ValuedNode.Value;
+          DataType := 'String';
           Exit(True);
         end;
       end;
@@ -184,7 +192,9 @@ procedure TFormUnitToDfm.AddConstant(const Node: TSyntaxNode);
       RefIndex := FdwsUnit.Constants.IndexOf(ReferenceName);
       if RefIndex >= 0 then
       begin
-        FdwsUnit.Constants.Values[ReferenceName];
+        Symbol := FdwsUnit.Constants.Symbols[ReferenceName];
+        Value := TdwsConstant(Symbol).Value;
+        DataType := TdwsConstant(Symbol).DataType;
         Exit(True);
       end;
     end
@@ -375,35 +385,92 @@ begin
         ScanClassMembers(ChildNode, cvPublished);
     end;
   end;
+end;
 
+procedure TFormUnitToDfm.AddInterface(const Node: TSyntaxNode);
+var
+  Cls: TdwsClass;
 
-(*
-  while Index < Length(TypeNode.ChildNodes) do
+  procedure ScanClassMembers(const Node: TSyntaxNode; Visibility: TdwsVisibility);
+  var
+    ChildNode: TSyntaxNode;
+    Method: TdwsMethod;
+    Prop: TdwsProperty;
+    MethodChildNode: TSyntaxNode;
+    ParamChildNode: TSyntaxNode;
+    Param: TdwsParameter;
+    ValueNode: TValuedSyntaxNode;
+    MethodBinding: string;
   begin
-    Assert(TypeNode.ChildNodes[Index].Typ = ntIdentifier);
-    Assert(TypeNode.ChildNodes[Index].HasAttribute(anName));
-    Name := TypeNode.ChildNodes[Index].GetAttribute(anName);
-    Element := Enum.Elements.Add;
-    Element.Name := Name;
-    Inc(Index);
-    if (Index < Length(TypeNode.ChildNodes)) and (TypeNode.ChildNodes[Index].Typ = ntExpression) then
-    begin
-      Assert(TypeNode.ChildNodes[Index].ChildNodes[0] is TValuedSyntaxNode);
-      ValuedNode := TValuedSyntaxNode(TypeNode.ChildNodes[Index].ChildNodes[0]);
-      if TypeNode.ChildNodes[Index].ChildNodes[0].HasAttribute(anType) then
-      begin
-        TypeString := TypeNode.ChildNodes[Index].ChildNodes[0].GetAttribute(anType);
-        if TypeString = 'numeric' then
-        begin
-          Element.UserDefValue := Int64(StrToInt(ValuedNode.Value));
-          Element.IsUserDef := True;
-        end;
+    for ChildNode in Node.ChildNodes do
+      case ChildNode.Typ of
+        ntMethod:
+          begin
+            Method := Cls.Methods.Add;
+            Method.Visibility := Visibility;
+            if ChildNode.HasAttribute(anName) then
+              Method.Name := ChildNode.GetAttribute(anName);
+            if ChildNode.HasAttribute(anMethodBinding) then
+            begin
+              MethodBinding := ChildNode.GetAttribute(anMethodBinding);
+              if MethodBinding = 'virtual' then
+                Method.Attributes := Method.Attributes + [maVirtual]
+              else
+              if MethodBinding = 'override' then
+                Method.Attributes := Method.Attributes + [maOverride];
+            end;
+
+            for MethodChildNode in ChildNode.ChildNodes do
+            begin
+              case MethodChildNode.Typ of
+                ntReturnType:
+                  begin
+                    Assert(MethodChildNode.ChildNodes[0].Typ = ntType);
+                    if MethodChildNode.ChildNodes[0].HasAttribute(anName) then
+                      Method.ResultType := MethodChildNode.ChildNodes[0].GetAttribute(anName);
+                  end;
+                ntParameters:
+                  for ParamChildNode in MethodChildNode.ChildNodes do
+                  begin
+                    Assert(ParamChildNode.Typ = ntParameter);
+                    if ParamChildNode.ChildNodes[0] is TValuedSyntaxNode then
+                    begin
+                      Param := Method.Parameters.Add;
+                      ValueNode := TValuedSyntaxNode(ParamChildNode.ChildNodes[0]);
+                      Param.Name := ValueNode.Value;
+                      if ParamChildNode.ChildNodes[1].HasAttribute(anName) then
+                        Param.DataType := ParamChildNode.ChildNodes[1].GetAttribute(anName);
+                    end;
+                  end;
+              end;
+            end;
+          end;
+        ntProperty:
+          begin
+            Prop := Cls.Properties.Add;
+            Prop.Visibility := Visibility;
+            if ChildNode.HasAttribute(anName) then
+              Prop.Name := ChildNode.GetAttribute(anName);
+          end;
       end;
-      Inc(Index);
-    end;
-    Inc(Index);
   end;
-*)
+
+var
+  Name: string;
+  TypeNode: TSyntaxNode;
+  ChildNode: TSyntaxNode;
+  Element: TdwsElement;
+  TypeString: string;
+  ValuedNode: TValuedSyntaxNode;
+begin
+  if Node.HasAttribute(anName) then
+    Name := Node.GetAttribute(anName);
+  TypeNode := Node.ChildNodes[0];
+
+  Cls := FdwsUnit.Classes.Add;
+  Cls.Name := Name;
+
+  ScanClassMembers(TypeNode, cvPublic);
 end;
 
 procedure TFormUnitToDfm.AddSynonym(const Node: TSyntaxNode);
@@ -481,6 +548,9 @@ begin
         TypeName := TypeNode.GetAttribute(anType);
         if TypeName = 'class' then
           AddClass(Node)
+        else
+        if TypeName = 'interface' then
+          AddInterface(Node)
       end;
     end;
   end
