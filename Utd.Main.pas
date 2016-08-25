@@ -66,8 +66,8 @@ type
     procedure AddEnum(const Node: TSyntaxNode);
     procedure AddClass(const Node: TSyntaxNode);
     procedure AddSynonym(const Node: TSyntaxNode);
-    procedure SetPascalFileName(const Value: TFileName);
     procedure AddInterface(const Node: TSyntaxNode);
+    procedure SetPascalFileName(const Value: TFileName);
   public
     procedure LoadFromFile(FileName: TFileName);
 
@@ -354,6 +354,9 @@ var
             Prop.Visibility := Visibility;
             if ChildNode.HasAttribute(anName) then
               Prop.Name := ChildNode.GetAttribute(anName);
+            if Length(ChildNode.ChildNodes) > 0 then
+              if ChildNode.ChildNodes[0].HasAttribute(anName) then
+                Prop.DataType := ChildNode.ChildNodes[0].GetAttribute(anName)
           end;
       end;
   end;
@@ -568,6 +571,11 @@ var
   StringStream: TStringStream;
   MemoryStream: TMemoryStream;
 begin
+  FdwsUnit.Constants.Clear;
+  FdwsUnit.Classes.Clear;
+  FdwsUnit.Enumerations.Clear;
+  FdwsUnit.Synonyms.Clear;
+
   SynEditDfm.Clear;
   SynEditDfm.BeginUpdate;
   try
