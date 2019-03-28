@@ -16,7 +16,8 @@ uses
   (* DelphiAst *)
   DelphiAst, DelphiAST.Classes, DelphiAST.Consts,
 
-  dwsComp, SynEditMiscClasses, SynEditSearch;
+  dwsComp, SynEditMiscClasses, SynEditSearch, SynEditCodeFolding,
+  System.ImageList;
 
 type
   TFormUnitToDfm = class(TForm)
@@ -41,7 +42,7 @@ type
     SynPasSyn: TSynPasSyn;
     TabSheetDfm: TTabSheet;
     TabSheetUnit: TTabSheet;
-    ToolBar1: TToolBar;
+    ToolBar: TToolBar;
     ToolButton4: TToolButton;
     ToolButton5: TToolButton;
     ToolButtonConvert: TToolButton;
@@ -56,11 +57,15 @@ type
     procedure FormDestroy(Sender: TObject);
     procedure ActionFileOpenAccept(Sender: TObject);
     procedure ActionFileSaveAsAccept(Sender: TObject);
+    procedure SynEditUnitStatusChange(Sender: TObject;
+      Changes: TSynStatusChanges);
+    procedure PageControlChange(Sender: TObject);
   private
     FIniFileName: TFileName;
     FPascalFileName: TFileName;
     FDataModule: TDataModule;
     FdwsUnit: TdwsUnit;
+    FCurrentSynEdit: TSynEdit;
     procedure VisualizeNode(Node: TSyntaxNode; Level: Integer);
     procedure AddConstant(const Node: TSyntaxNode);
     procedure AddEnum(const Node: TSyntaxNode);
@@ -92,6 +97,7 @@ begin
   FdwsUnit := TdwsUnit.Create(FDataModule);
   FdwsUnit.Name := 'dwsUnit';
   FdwsUnit.StaticSymbols := False;
+  FCurrentSynEdit := SynEditUnit;
 
   FIniFileName := ChangeFileExt(ParamStr(0), '.ini');
 
@@ -130,6 +136,14 @@ begin
   FdwsUnit.UnitName := ChangeFileExt(ExtractFileName(FPascalFileName), '');
 end;
 
+procedure TFormUnitToDfm.PageControlChange(Sender: TObject);
+begin
+  if PageControl.TabIndex = 0 then
+    FCurrentSynEdit := SynEditUnit
+  else
+    FCurrentSynEdit := SynEditDfm;
+end;
+
 procedure TFormUnitToDfm.SetPascalFileName(const Value: TFileName);
 begin
   if FPascalFileName <> Value then
@@ -137,6 +151,15 @@ begin
     FPascalFileName := Value;
     ActionFileSaveAs.Dialog.FileName := FPascalFileName + '.dfm';
   end;
+end;
+
+procedure TFormUnitToDfm.SynEditUnitStatusChange(Sender: TObject;
+  Changes: TSynStatusChanges);
+begin
+  if [scCaretX, scCaretY] * Changes <> [] then
+    StatusBar.Panels[0].Text :=
+      'X: ' + IntToStr(FCurrentSynEdit.CaretX) + ' ' +
+      'Y: ' + IntToStr(FCurrentSynEdit.CaretY);
 end;
 
 procedure TFormUnitToDfm.ActionFileOpenAccept(Sender: TObject);
@@ -174,13 +197,15 @@ procedure TFormUnitToDfm.AddConstant(const Node: TSyntaxNode);
         if TypeString = 'numeric' then
         begin
           Value := Int64(StrToInt(ValuedNode.Value));
-          DataType := 'Integer';
+          if (DataType = '') then
+            DataType := 'Integer';
           Exit(True);
         end;
         if TypeString = 'string' then
         begin
           Value := ValuedNode.Value;
-          DataType := 'String';
+          if (DataType = '') then
+            DataType := 'String';
           Exit(True);
         end;
       end;
@@ -219,6 +244,7 @@ procedure TFormUnitToDfm.AddConstant(const Node: TSyntaxNode);
 var
   ValuedNode: TValuedSyntaxNode;
   Name: string;
+  Index: Integer;
   CurrentValue: Variant;
   CurrentDataType: string;
   Constant: TdwsConstant;
@@ -230,12 +256,30 @@ begin
   ValuedNode := TValuedSyntaxNode(Node.ChildNodes[0]);
   Name := ValuedNode.Value;
 
-  Assert(Node.ChildNodes[1].Typ = ntValue);
-  Assert(Length(Node.ChildNodes[1].ChildNodes) >= 1);
-  Assert(Node.ChildNodes[1].ChildNodes[0].Typ = ntExpression);
-  Assert(Length(Node.ChildNodes[1].ChildNodes) >= 1);
+  Index := 1;
 
-  ExpressionNode := Node.ChildNodes[1].ChildNodes[0].ChildNodes[0];
+  // eventually read type information
+  if Node.ChildNodes[Index].Typ = ntType then
+  begin
+    if Node.ChildNodes[Index].HasAttribute(anName) then
+      CurrentDataType := Node.ChildNodes[Index].GetAttribute(anName);
+    Inc(Index);
+  end;
+
+  Assert(Node.ChildNodes[Index].Typ = ntValue);
+  Assert(Length(Node.ChildNodes[Index].ChildNodes) >= 1);
+
+  if Node.ChildNodes[Index].ChildNodes[0].Typ = ntField then
+  begin
+    // todo, as in Winapi.Windows.pas, line 16126
+
+    exit;
+  end;
+
+  Assert(Node.ChildNodes[Index].ChildNodes[0].Typ = ntExpression);
+  Assert(Length(Node.ChildNodes[Index].ChildNodes) >= 1);
+
+  ExpressionNode := Node.ChildNodes[Index].ChildNodes[0].ChildNodes[0];
   if GetConstantValue(ExpressionNode, CurrentValue, CurrentDataType) then
   begin
     Constant := FdwsUnit.Constants.Add;
@@ -252,7 +296,7 @@ var
   Index: Integer;
   Enum: TdwsEnumeration;
   Element: TdwsElement;
-  TypeString: string;
+  TypeString, NameString: string;
   ValuedNode: TValuedSyntaxNode;
 begin
   if Node.HasAttribute(anName) then
@@ -274,18 +318,30 @@ begin
     Inc(Index);
     if (Index < Length(TypeNode.ChildNodes)) and (TypeNode.ChildNodes[Index].Typ = ntExpression) then
     begin
-      Assert(TypeNode.ChildNodes[Index].ChildNodes[0] is TValuedSyntaxNode);
-      ValuedNode := TValuedSyntaxNode(TypeNode.ChildNodes[Index].ChildNodes[0]);
-      if TypeNode.ChildNodes[Index].ChildNodes[0].HasAttribute(anType) then
+      if TypeNode.ChildNodes[Index].ChildNodes[0] is TValuedSyntaxNode then
       begin
-        TypeString := TypeNode.ChildNodes[Index].ChildNodes[0].GetAttribute(anType);
-        if TypeString = 'numeric' then
+        ValuedNode := TValuedSyntaxNode(TypeNode.ChildNodes[Index].ChildNodes[0]);
+        if TypeNode.ChildNodes[Index].ChildNodes[0].HasAttribute(anType) then
         begin
-          Element.UserDefValue := Int64(StrToInt(ValuedNode.Value));
+          TypeString := TypeNode.ChildNodes[Index].ChildNodes[0].GetAttribute(anType);
+          if TypeString = 'numeric' then
+          begin
+            Element.UserDefValue := Int64(StrToInt(ValuedNode.Value));
+            Element.IsUserDef := True;
+          end;
+        end;
+        Inc(Index);
+      end
+      else
+      begin
+        if TypeNode.ChildNodes[Index].ChildNodes[0].HasAttribute(anName) then
+        begin
+          NameString := TypeNode.ChildNodes[Index].ChildNodes[0].GetAttribute(anName);
+//          Element.UserDefValue := NameString; // TODO
           Element.IsUserDef := True;
         end;
+        Inc(Index);
       end;
-      Inc(Index);
     end;
   end;
 end;
@@ -365,9 +421,6 @@ var
   Name: string;
   TypeNode: TSyntaxNode;
   ChildNode: TSyntaxNode;
-  Element: TdwsElement;
-  TypeString: string;
-  ValuedNode: TValuedSyntaxNode;
 begin
   if Node.HasAttribute(anName) then
     Name := Node.GetAttribute(anName);
@@ -461,10 +514,6 @@ var
 var
   Name: string;
   TypeNode: TSyntaxNode;
-  ChildNode: TSyntaxNode;
-  Element: TdwsElement;
-  TypeString: string;
-  ValuedNode: TValuedSyntaxNode;
 begin
   if Node.HasAttribute(anName) then
     Name := Node.GetAttribute(anName);

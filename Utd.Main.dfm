@@ -24,6 +24,7 @@ object FormUnitToDfm: TFormUnitToDfm
     ActivePage = TabSheetUnit
     Align = alClient
     TabOrder = 0
+    OnChange = PageControlChange
     object TabSheetUnit: TTabSheet
       Caption = 'Delphi Unit'
       object SynEditUnit: TSynEdit
@@ -38,6 +39,14 @@ object FormUnitToDfm: TFormUnitToDfm
         Font.Name = 'Courier New'
         Font.Style = []
         TabOrder = 0
+        CodeFolding.GutterShapeSize = 11
+        CodeFolding.CollapsedLineColor = clGrayText
+        CodeFolding.FolderBarLinesColor = clGrayText
+        CodeFolding.IndentGuidesColor = clGray
+        CodeFolding.IndentGuides = True
+        CodeFolding.ShowCollapsedLine = False
+        CodeFolding.ShowHintMark = True
+        UseCodeFolding = False
         Gutter.Font.Charset = DEFAULT_CHARSET
         Gutter.Font.Color = clWindowText
         Gutter.Font.Height = -11
@@ -45,6 +54,7 @@ object FormUnitToDfm: TFormUnitToDfm
         Gutter.Font.Style = []
         Highlighter = SynPasSyn
         SearchEngine = SynEditSearch
+        OnStatusChange = SynEditUnitStatusChange
         FontSmoothing = fsmNone
       end
     end
@@ -63,6 +73,14 @@ object FormUnitToDfm: TFormUnitToDfm
         Font.Name = 'Courier New'
         Font.Style = []
         TabOrder = 0
+        CodeFolding.GutterShapeSize = 11
+        CodeFolding.CollapsedLineColor = clGrayText
+        CodeFolding.FolderBarLinesColor = clGrayText
+        CodeFolding.IndentGuidesColor = clGray
+        CodeFolding.IndentGuides = True
+        CodeFolding.ShowCollapsedLine = False
+        CodeFolding.ShowHintMark = True
+        UseCodeFolding = False
         Gutter.Font.Charset = DEFAULT_CHARSET
         Gutter.Font.Color = clWindowText
         Gutter.Font.Height = -11
@@ -74,7 +92,7 @@ object FormUnitToDfm: TFormUnitToDfm
       end
     end
   end
-  object ToolBar1: TToolBar
+  object ToolBar: TToolBar
     AlignWithMargins = True
     Left = 3
     Top = 3
@@ -121,7 +139,13 @@ object FormUnitToDfm: TFormUnitToDfm
     Top = 499
     Width = 857
     Height = 22
-    Panels = <>
+    Panels = <
+      item
+        Width = 100
+      end
+      item
+        Width = 50
+      end>
   end
   object MainMenu: TMainMenu
     Images = ImageList
@@ -207,7 +231,7 @@ object FormUnitToDfm: TFormUnitToDfm
     Left = 64
     Top = 160
     Bitmap = {
-      494C010105000900040010001000FFFFFFFF2110FFFFFFFFFFFFFFFF424D3600
+      494C010105000800080010001000FFFFFFFF2110FFFFFFFFFFFFFFFF424D3600
       0000000000003600000028000000400000002000000001002000000000000020
       0000000000000000000000000000000000000000000000000000000000000000
       0000000000000000000000000000000000000000000000000000000000000000
