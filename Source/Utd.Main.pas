@@ -5,9 +5,9 @@ interface
 uses
   (* Delphi *)
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Classes,
-  System.Actions, System.Generics.Collections, System.Contnrs, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ActnList, Vcl.StdActns, Vcl.Menus,
-  Vcl.ComCtrls, Vcl.ToolWin, Vcl.ImgList,
+  System.Actions, System.Generics.Collections, System.Contnrs, System.ImageList,
+  Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ActnList,
+  Vcl.StdActns, Vcl.Menus, Vcl.ComCtrls, Vcl.ToolWin, Vcl.ImgList,
 
   (* SynEdit *)
   SynHighlighterDfm, SynEditHighlighter, SynHighlighterDWS, SynEdit,
@@ -16,16 +16,18 @@ uses
   (* DelphiAst *)
   DelphiAst, DelphiAST.Classes, DelphiAST.Consts,
 
-  dwsComp, SynEditMiscClasses, SynEditSearch, SynEditCodeFolding,
-  System.ImageList;
+  dwsComp, SynEditMiscClasses, SynEditSearch, SynEditCodeFolding;
 
 type
+  TCustomDataModule = class(TDataModule);
+
   TFormUnitToDfm = class(TForm)
     ActionConvert: TAction;
     ActionFileExit: TFileExit;
     ActionFileOpen: TFileOpen;
     ActionFileSaveAs: TFileSaveAs;
     ActionList: TActionList;
+    ActionSearchFind: TSearchFind;
     ImageList: TImageList;
     MainMenu: TMainMenu;
     MenuItemConvert: TMenuItem;
@@ -33,14 +35,19 @@ type
     MenuItemFileExit: TMenuItem;
     MenuItemFileOpen: TMenuItem;
     MenuItemFileSaveAs: TMenuItem;
+    MenuItemFind: TMenuItem;
+    MenuItemSearch: TMenuItem;
     N1: TMenuItem;
     PageControl: TPageControl;
     StatusBar: TStatusBar;
     SynDfmSyn: TSynDfmSyn;
     SynEditDfm: TSynEdit;
+    SynEditPas: TSynEdit;
+    SynEditSearch: TSynEditSearch;
     SynEditUnit: TSynEdit;
     SynPasSyn: TSynPasSyn;
     TabSheetDfm: TTabSheet;
+    TabSheetPascal: TTabSheet;
     TabSheetUnit: TTabSheet;
     ToolBar: TToolBar;
     ToolButton4: TToolButton;
@@ -48,31 +55,29 @@ type
     ToolButtonConvert: TToolButton;
     ToolButtonOpen: TToolButton;
     ToolButtonSaveAs: TToolButton;
-    SynEditSearch: TSynEditSearch;
-    ActionSearchFind: TSearchFind;
-    MenuItemSearch: TMenuItem;
-    Find1: TMenuItem;
-    procedure ActionConvertExecute(Sender: TObject);
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure ActionConvertExecute(Sender: TObject);
     procedure ActionFileOpenAccept(Sender: TObject);
     procedure ActionFileSaveAsAccept(Sender: TObject);
-    procedure SynEditUnitStatusChange(Sender: TObject;
-      Changes: TSynStatusChanges);
     procedure PageControlChange(Sender: TObject);
+    procedure SynEditUnitStatusChange(Sender: TObject; Changes: TSynStatusChanges);
   private
     FIniFileName: TFileName;
     FPascalFileName: TFileName;
-    FDataModule: TDataModule;
+    FDataModule: TCustomDataModule;
     FdwsUnit: TdwsUnit;
     FCurrentSynEdit: TSynEdit;
-    procedure VisualizeNode(Node: TSyntaxNode; Level: Integer);
+    procedure VisitNode(Node: TSyntaxNode; Level: Integer);
     procedure AddConstant(const Node: TSyntaxNode);
     procedure AddEnum(const Node: TSyntaxNode);
     procedure AddClass(const Node: TSyntaxNode);
     procedure AddSynonym(const Node: TSyntaxNode);
     procedure AddInterface(const Node: TSyntaxNode);
+    procedure AddFunction(const Node: TSyntaxNode);
     procedure SetPascalFileName(const Value: TFileName);
+    procedure GenerateDfm;
+    procedure GeneratePas;
   public
     procedure LoadFromFile(FileName: TFileName);
 
@@ -89,13 +94,30 @@ uses
 
 {$R *.dfm}
 
+function NormalizeDataType(DataType: String): String;
+begin
+  if ASCIISameText(DataType, 'bool') or ASCIISameText(DataType, 'boolean') then
+    Result := 'Boolean'
+  else
+  if ASCIISameText(DataType, 'Byte') or ASCIISameText(DataType, 'Word') or ASCIISameText(DataType, 'DWord') or ASCIISameText(DataType, 'Int64') then
+    Result := 'Integer'
+  else
+  if ASCIISameText(DataType, 'PWideChar') or ASCIISameText(DataType, 'PAnsiChar') or ASCIISameText(DataType, 'String') then
+    Result := 'String'
+  else
+    Result := DataType;
+end;
+
 { TFormUnitToDfm }
 
 procedure TFormUnitToDfm.FormCreate(Sender: TObject);
 begin
-  FDataModule := TDataModule.Create(nil);
+  FDataModule := TCustomDataModule.CreateNew(nil);
+  FDataModule.Name := 'CustomDataModule';
+  FDataModule.DesignSize := Point(150, 215);
+
   FdwsUnit := TdwsUnit.Create(FDataModule);
-  FdwsUnit.Name := 'dwsUnit';
+  FdwsUnit.Name := 'dwsUnit1';
   FdwsUnit.StaticSymbols := False;
   FCurrentSynEdit := SynEditUnit;
 
@@ -138,10 +160,14 @@ end;
 
 procedure TFormUnitToDfm.PageControlChange(Sender: TObject);
 begin
-  if PageControl.TabIndex = 0 then
-    FCurrentSynEdit := SynEditUnit
-  else
-    FCurrentSynEdit := SynEditDfm;
+  case PageControl.TabIndex of
+    0:
+      FCurrentSynEdit := SynEditUnit;
+    1:
+      FCurrentSynEdit := SynEditDfm;
+    2:
+      FCurrentSynEdit := SynEditPas;
+  end;
 end;
 
 procedure TFormUnitToDfm.SetPascalFileName(const Value: TFileName);
@@ -171,6 +197,8 @@ end;
 procedure TFormUnitToDfm.ActionFileSaveAsAccept(Sender: TObject);
 begin
   SaveTextToUTF8File(ActionFileSaveAs.Dialog.FileName, SynEditDfm.Text);
+  if SynEditPas.Text <> '' then
+    SaveTextToUTF8File(ChangeFileExt(ActionFileSaveAs.Dialog.FileName, '.pas'), SynEditPas.Text);
 end;
 
 procedure TFormUnitToDfm.AddConstant(const Node: TSyntaxNode);
@@ -272,8 +300,10 @@ begin
   if Node.ChildNodes[Index].ChildNodes[0].Typ = ntField then
   begin
     // todo, as in Winapi.Windows.pas, line 16126
+    // const WIN_TRUST_SUBJTYPE_RAW_FILEEX: TGUID = (
+    //   D1:$6f458110; D2:$c2f1; D3:$11cf; D4:($8a, $69, $0, $aa, 0, $6c, $37, 6));
 
-    exit;
+    Exit;
   end;
 
   Assert(Node.ChildNodes[Index].ChildNodes[0].Typ = ntExpression);
@@ -285,7 +315,7 @@ begin
     Constant := FdwsUnit.Constants.Add;
     Constant.Name := Name;
     Constant.Value := CurrentValue;
-    Constant.DataType := CurrentDataType;
+    Constant.DataType := NormalizeDataType(CurrentDataType);
   end;
 end;
 
@@ -346,6 +376,69 @@ begin
   end;
 end;
 
+procedure TFormUnitToDfm.AddFunction(const Node: TSyntaxNode);
+var
+  Func: TdwsFunction;
+  Param: TdwsParameter;
+  ChildNode, ParamChildNode: TSyntaxNode;
+  Name, ParamName, KindName: String;
+  Index, ParamsIndex, ParamIndex: Integer;
+begin
+  Assert(Node.Typ = ntMethod);
+
+  if Node.HasAttribute(anName) then
+    Name := Node.GetAttribute(anName);
+
+  Func := FdwsUnit.Functions.Add;
+  Func.Name := Name;
+
+  for Index := 0 to Length(Node.ChildNodes) - 1 do
+  begin
+    if Node.ChildNodes[Index].Typ = ntParameters then
+    begin
+      for ParamsIndex := 0 to Length(Node.ChildNodes[Index].ChildNodes) - 1 do
+      begin
+        ChildNode := Node.ChildNodes[Index].ChildNodes[ParamsIndex];
+        if not (ChildNode.Typ = ntParameter) then
+          Continue;
+
+        Param := Func.Parameters.Add;
+
+        if ChildNode.HasAttribute(anKind) then
+        begin
+          KindName := ChildNode.GetAttribute(anKind);
+          if KindName = 'const' then
+          begin
+            Param.IsVarParam := True;
+            Param.IsVarParam := False;
+          end
+          else
+          if KindName = 'var' then
+          begin
+            Param.IsVarParam := True;
+            Param.IsWritable := True;
+          end;
+        end;
+
+        if ChildNode.ChildNodes[0] is TValuedSyntaxNode then
+          Param.Name := TValuedSyntaxNode(ChildNode.ChildNodes[0]).Value;
+
+        if ChildNode.ChildNodes[1].HasAttribute(anName) then
+          Param.DataType := NormalizeDataType(ChildNode.ChildNodes[1].GetAttribute(anName));
+      end;
+    end
+    else
+    if Node.ChildNodes[Index].Typ = ntReturnType then
+    begin
+      ChildNode := Node.ChildNodes[Index];
+      if ChildNode.ChildNodes[0].HasAttribute(anName) then
+        Func.ResultType := ChildNode.ChildNodes[0].GetAttribute(anName);
+    end
+    else
+      raise Exception.Create('Unexpected type: ' + SyntaxNodeNames[Node.ChildNodes[Index].Typ]);
+  end;
+end;
+
 procedure TFormUnitToDfm.AddClass(const Node: TSyntaxNode);
 var
   Cls: TdwsClass;
@@ -398,7 +491,7 @@ var
                       ValueNode := TValuedSyntaxNode(ParamChildNode.ChildNodes[0]);
                       Param.Name := ValueNode.Value;
                       if ParamChildNode.ChildNodes[1].HasAttribute(anName) then
-                        Param.DataType := ParamChildNode.ChildNodes[1].GetAttribute(anName);
+                        Param.DataType := NormalizeDataType(ParamChildNode.ChildNodes[1].GetAttribute(anName));
                     end;
                   end;
               end;
@@ -412,7 +505,7 @@ var
               Prop.Name := ChildNode.GetAttribute(anName);
             if Length(ChildNode.ChildNodes) > 0 then
               if ChildNode.ChildNodes[0].HasAttribute(anName) then
-                Prop.DataType := ChildNode.ChildNodes[0].GetAttribute(anName)
+                Prop.DataType := NormalizeDataType(ChildNode.ChildNodes[0].GetAttribute(anName))
           end;
       end;
   end;
@@ -495,7 +588,7 @@ var
                       ValueNode := TValuedSyntaxNode(ParamChildNode.ChildNodes[0]);
                       Param.Name := ValueNode.Value;
                       if ParamChildNode.ChildNodes[1].HasAttribute(anName) then
-                        Param.DataType := ParamChildNode.ChildNodes[1].GetAttribute(anName);
+                        Param.DataType := NormalizeDataType(ParamChildNode.ChildNodes[1].GetAttribute(anName));
                     end;
                   end;
               end;
@@ -538,8 +631,8 @@ begin
 
   if TypeNode.HasAttribute(anName) then
   begin
-    DataType := TypeNode.GetAttribute(anName);
-    if (DataType = 'Byte') or (DataType = 'Word') or (DataType = 'Integer') or (DataType = 'UInt64') then
+    DataType := NormalizeDataType(TypeNode.GetAttribute(anName));
+    if DataType = 'Integer' then
     begin
       Synonym := FdwsUnit.Synonyms.Add;
       Synonym.Name := Name;
@@ -555,10 +648,10 @@ begin
   end;
 end;
 
-procedure TFormUnitToDfm.VisualizeNode(Node: TSyntaxNode; Level: Integer);
+procedure TFormUnitToDfm.VisitNode(Node: TSyntaxNode; Level: Integer);
 var
   NodeInfo: string;
-  TypeName: string;
+  TypeName, KindName: string;
   Index: Integer;
   TypeNode: TSyntaxNode;
 begin
@@ -570,7 +663,6 @@ begin
     NodeInfo := Node.GetAttribute(anType) + ' ' + NodeInfo;
 
   NodeInfo := SyntaxNodeNames[Node.Typ] + ': ' + NodeInfo;
-
 
   // indention
   NodeInfo := StringOfChar(' ', 2 * Level) + NodeInfo;
@@ -607,31 +699,29 @@ begin
     end;
   end
   else
+  if Node.Typ = ntMethod then
   begin
-
+    if Node.HasAttribute(anKind) then
+    begin
+      KindName := Node.GetAttribute(anKind);
+      if KindName = 'function' then
+        AddFunction(Node);
+    end;
+  end;
+  begin
     for Index := 0 to Length(Node.ChildNodes) - 1 do
-      VisualizeNode(Node.ChildNodes[Index], Level + 1);
+      VisitNode(Node.ChildNodes[Index], Level + 1);
   end;
 end;
 
-procedure TFormUnitToDfm.ActionConvertExecute(Sender: TObject);
+procedure TFormUnitToDfm.GenerateDfm;
 var
-  Node: TSyntaxNode;
   StringStream: TStringStream;
   MemoryStream: TMemoryStream;
 begin
-  FdwsUnit.Constants.Clear;
-  FdwsUnit.Classes.Clear;
-  FdwsUnit.Enumerations.Clear;
-  FdwsUnit.Synonyms.Clear;
-
   SynEditDfm.Clear;
   SynEditDfm.BeginUpdate;
   try
-    Node := TPasSyntaxTreeBuilder.Run(FPascalFileName, True);
-    VisualizeNode(Node, 0);
-    PageControl.ActivePage := TabSheetDfm;
-
     MemoryStream := TMemoryStream.Create;
     try
       MemoryStream.WriteComponent(FDataModule);
@@ -650,6 +740,54 @@ begin
   finally
     SynEditDfm.EndUpdate;
   end;
+end;
+
+procedure TFormUnitToDfm.GeneratePas;
+var
+  StringStream: TStringStream;
+  MemoryStream: TMemoryStream;
+begin
+  SynEditPas.Clear;
+  SynEditPas.BeginUpdate;
+  try
+    SynEditPas.Lines.Add('unit Convert;');
+    SynEditPas.Lines.Add('');
+    SynEditPas.Lines.Add('interface');
+    SynEditPas.Lines.Add('');
+    SynEditPas.Lines.Add('uses');
+    SynEditPas.Lines.Add('  System.SysUtils, System.Classes, dwsComp;');
+    SynEditPas.Lines.Add('');
+    SynEditPas.Lines.Add('type');
+    SynEditPas.Lines.Add('  TCustomDataModule = class(TDataModule)');
+    SynEditPas.Lines.Add('    dwsUnit1: TdwsUnit;');
+    SynEditPas.Lines.Add('  end;');
+    SynEditPas.Lines.Add('');
+    SynEditPas.Lines.Add('implementation');
+    SynEditPas.Lines.Add('');
+    SynEditPas.Lines.Add('{$R *.dfm}');
+    SynEditPas.Lines.Add('');
+    SynEditPas.Lines.Add('end.');
+  finally
+    SynEditPas.EndUpdate;
+  end;
+end;
+
+procedure TFormUnitToDfm.ActionConvertExecute(Sender: TObject);
+var
+  Node: TSyntaxNode;
+begin
+  FdwsUnit.Constants.Clear;
+  FdwsUnit.Classes.Clear;
+  FdwsUnit.Enumerations.Clear;
+  FdwsUnit.Synonyms.Clear;
+
+  Node := TPasSyntaxTreeBuilder.Run(FPascalFileName, True);
+  VisitNode(Node, 0);
+
+  GenerateDfm;
+  GeneratePas;
+
+  PageControl.ActivePage := TabSheetDfm;
 end;
 
 end.

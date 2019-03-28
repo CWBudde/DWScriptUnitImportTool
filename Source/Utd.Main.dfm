@@ -21,12 +21,16 @@ object FormUnitToDfm: TFormUnitToDfm
     Top = 28
     Width = 857
     Height = 471
-    ActivePage = TabSheetUnit
+    ActivePage = TabSheetPascal
     Align = alClient
     TabOrder = 0
     OnChange = PageControlChange
     object TabSheetUnit: TTabSheet
       Caption = 'Delphi Unit'
+      ExplicitLeft = 0
+      ExplicitTop = 0
+      ExplicitWidth = 0
+      ExplicitHeight = 0
       object SynEditUnit: TSynEdit
         Left = 0
         Top = 0
@@ -61,6 +65,10 @@ object FormUnitToDfm: TFormUnitToDfm
     object TabSheetDfm: TTabSheet
       Caption = 'DFM'
       ImageIndex = 1
+      ExplicitLeft = 0
+      ExplicitTop = 0
+      ExplicitWidth = 0
+      ExplicitHeight = 0
       object SynEditDfm: TSynEdit
         Left = 0
         Top = 0
@@ -87,6 +95,39 @@ object FormUnitToDfm: TFormUnitToDfm
         Gutter.Font.Name = 'Courier New'
         Gutter.Font.Style = []
         Highlighter = SynDfmSyn
+        SearchEngine = SynEditSearch
+        FontSmoothing = fsmNone
+      end
+    end
+    object TabSheetPascal: TTabSheet
+      Caption = 'Pas'
+      ImageIndex = 2
+      object SynEditPas: TSynEdit
+        Left = 0
+        Top = 0
+        Width = 849
+        Height = 443
+        Align = alClient
+        Font.Charset = DEFAULT_CHARSET
+        Font.Color = clWindowText
+        Font.Height = -13
+        Font.Name = 'Courier New'
+        Font.Style = []
+        TabOrder = 0
+        CodeFolding.GutterShapeSize = 11
+        CodeFolding.CollapsedLineColor = clGrayText
+        CodeFolding.FolderBarLinesColor = clGrayText
+        CodeFolding.IndentGuidesColor = clGray
+        CodeFolding.IndentGuides = True
+        CodeFolding.ShowCollapsedLine = False
+        CodeFolding.ShowHintMark = True
+        UseCodeFolding = False
+        Gutter.Font.Charset = DEFAULT_CHARSET
+        Gutter.Font.Color = clWindowText
+        Gutter.Font.Height = -11
+        Gutter.Font.Name = 'Courier New'
+        Gutter.Font.Style = []
+        Highlighter = SynPasSyn
         SearchEngine = SynEditSearch
         FontSmoothing = fsmNone
       end
@@ -168,7 +209,7 @@ object FormUnitToDfm: TFormUnitToDfm
     end
     object MenuItemSearch: TMenuItem
       Caption = '&Search'
-      object Find1: TMenuItem
+      object MenuItemFind: TMenuItem
         Action = ActionSearchFind
       end
     end
@@ -231,7 +272,7 @@ object FormUnitToDfm: TFormUnitToDfm
     Left = 64
     Top = 160
     Bitmap = {
-      494C010105000800080010001000FFFFFFFF2110FFFFFFFFFFFFFFFF424D3600
+      494C010105001400140010001000FFFFFFFF2110FFFFFFFFFFFFFFFF424D3600
       0000000000003600000028000000400000002000000001002000000000000020
       0000000000000000000000000000000000000000000000000000000000000000
       0000000000000000000000000000000000000000000000000000000000000000
